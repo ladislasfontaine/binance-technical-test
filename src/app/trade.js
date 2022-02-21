@@ -3,8 +3,10 @@ const { printMessage } = require("./utils/print");
 const { makeRequest } = require("./utils/request");
 const { openSocket } = require("./utils/socket");
 
-let lastMinuteEventLatencies = [];
 let lastMinuteEventsCount = 0;
+let lastMinuteSumLatency = 0;
+let lastMinuteMinLatency;
+let lastMinuteMaxLatency;
 
 const ge24hrTickerPriceChangeStatistics = async () => {
   try {
@@ -40,12 +42,25 @@ const sortByHighestVolume = (a, b) => {
 
 const handleTradeEvent = (e) => {
   try {
+    const currentTime = Date.now();
     const event = JSON.parse(e);
     const eventTime = event.data.E;
-    const tradeTime = event.data.T;
+    const latencyInMs = currentTime - eventTime;
 
+    if (
+      lastMinuteMinLatency === undefined ||
+      latencyInMs < lastMinuteMinLatency
+    ) {
+      lastMinuteMinLatency = latencyInMs;
+    }
+    if (
+      lastMinuteMaxLatency === undefined ||
+      latencyInMs > lastMinuteMaxLatency
+    ) {
+      lastMinuteMaxLatency = latencyInMs;
+    }
+    lastMinuteSumLatency += latencyInMs;
     lastMinuteEventsCount += 1;
-    lastMinuteEventLatencies.push(eventTime - tradeTime);
   } catch (error) {
     console.error(`Error on handleTradeEvent: ${error}`);
   }
@@ -54,19 +69,19 @@ const handleTradeEvent = (e) => {
 const calculateEventsLatency = () => {
   try {
     setInterval(() => {
-      const min = Math.min(...lastMinuteEventLatencies);
-      const max = Math.max(...lastMinuteEventLatencies);
-      const mean =
-        lastMinuteEventLatencies.reduce((a, b) => a + b, 0) /
-        lastMinuteEventLatencies.length;
-
-      lastMinuteEventLatencies = [];
       printMessage(
-        `EVENT TIME LATENCY (ms) | min ${min.toString().padEnd(3)} | max ${max
+        `EVENT TIME LATENCY (ms) | min ${lastMinuteMinLatency
           .toString()
-          .padEnd(3)} | mean ${mean} | trades count ${lastMinuteEventsCount}`
+          .padEnd(3)} | max ${lastMinuteMaxLatency
+          .toString()
+          .padEnd(3)} | mean ${
+          lastMinuteSumLatency / lastMinuteEventsCount
+        } | trades count ${lastMinuteEventsCount}`
       );
       lastMinuteEventsCount = 0;
+      lastMinuteSumLatency = 0;
+      lastMinuteMinLatency = undefined;
+      lastMinuteMaxLatency = undefined;
     }, 60000);
   } catch (error) {
     console.error(`Error on calculateEventsLatency: ${error}`);
